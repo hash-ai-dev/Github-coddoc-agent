@@ -1,0 +1,22 @@
+# Core
+python-dotenv>=1.0.0
+json-rpc>=1.15.0
+requests>=2.32.0
+numpy>=1.26.0
+
+# AI & Agents
+langgraph>=0.2.45
+langchain>=0.3.7
+langchain-huggingface>=0.1.2
+langchain-community>=0.3.5
+
+# RAG & Vector Store
+chromadb>=0.4.22
+sentence-transformers>=2.6.0
+torch>=2.0.0
+
+# Integrations & Utilities
+GitPython>=3.1.43
+atlassian-python-api>=3.41.0
+regex>=2023.0.0
+tqdm>=4.66.0

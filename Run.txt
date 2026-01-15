@@ -1,0 +1,38 @@
+Run: npm run dev
+
+for REQUIREMENTS
+{cd backend
+pip install -r requirements.txt}
+
+
+This is definitely an Agentic AI Workflow, and not just simple automation. Here’s why:
+
+1. Autonomous Decision Making
+A simple automation follows a fixed script (e.g., "Always doc these 10 files"). In our workflow, the LLM acts as a reasoning engine. It looks at each file and autonomously decides: "Is this worth documenting, or is it trivial/auto-generated?" It then returns NO_DOCS_NEEDED to prune the workload. This is agency.
+
+2. Context-Aware Reasoning
+The 
+DocGenerator
+ doesn't just copy-paste; it analyzes the repository structure, READMEs, and code context to synthesize a high-level overview. It understands intent rather than just syntax.
+
+3. Stateful Graph Orchestration (LangGraph)
+We are using langgraph in 
+workflow.py
+ to manage the process. This isn't a linear "Step A -> Step B" script. It’s a directed graph that:
+
+Checks a Knowledge Base (Vector Store).
+Performs Change Detection between commits.
+Decides whether to generate new documentation or reuse cached context.
+Manages an evolving 
+WorkflowState
+.
+4. Self-Correction & Tool Use
+The workflow communicates with multiple external "tools" (GitHub for cloning, Hugging Face for reasoning, ChromaDB for memory, and Confluence for publishing). It standardizes formatting and sanitizes its own output before the final "hand-off."
+
+Summary
+Feature	Simple Automation	Agentic AI Workflow (CodetoDoc)
+Logic	Static/Scripted	Dynamic/Reasoning-based
+Context	None	Uses RAG & Multi-file Analysis
+Decision	Programmer-defined	AI-defined (e.g., Filtering logic)
+Structure	Linear	Graph-based (State machine)
+In short, because the system uses an LLM to make decisions about the process itself (like skip logic) and manages its own "memory" via a vector store, it is a true Agentic Workflow.

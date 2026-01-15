@@ -1,0 +1,6 @@
+backend/env/
+dist/
+build/
+*.exe
+__pycache__/
+.env
