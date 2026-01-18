@@ -1,0 +1,11 @@
+# Wait 60 seconds before connecting using these details, or login to https://console.neo4j.io to validate the Aura Instance is available
+NEO4J_URI=neo4j+s://1d357d50.databases.neo4j.io
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=CVlu4Zaze2NNXQ_rBtWvw8wtun47ga1u8V1gjXRMloM
+NEO4J_DATABASE=neo4j
+AURA_INSTANCEID=1d357d50
+AURA_INSTANCENAME=Free instance
+
+
+GitHub: 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
+Hugging Face API: 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
