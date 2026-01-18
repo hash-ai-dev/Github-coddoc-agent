@@ -97,6 +97,12 @@ async function startPythonBackend() {
         cwd: backendPath,
         env: { ...process.env, PYTHONUNBUFFERED: '1' }
     });
+    // Helper for safe IPC sending
+    const safeSend = (channel, ...args) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(channel, ...args);
+        }
+    };
     pythonProcess.stdout?.on('data', (data) => {
         const lines = data.toString().split('\n');
         lines.forEach((line) => {
@@ -107,49 +113,55 @@ async function startPythonBackend() {
                 const json = JSON.parse(line);
                 // Route message based on type
                 if (json.type === 'log')
-                    mainWindow?.webContents.send('python-log', json.payload);
+                    safeSend('python-log', json.payload);
                 else if (json.type === 'progress')
-                    mainWindow?.webContents.send('python-progress', json.payload);
+                    safeSend('python-progress', json.payload);
                 else if (json.type === 'system')
-                    mainWindow?.webContents.send('python-system', json.payload);
+                    safeSend('python-system', json.payload);
                 else if (json.type === 'pong')
-                    mainWindow?.webContents.send('python-status', json.payload);
+                    safeSend('python-status', json.payload);
                 else if (json.type === 'success')
-                    mainWindow?.webContents.send('python-status', json.payload);
+                    safeSend('python-status', json.payload);
                 else if (json.type === 'repos_list')
-                    mainWindow?.webContents.send('python-repos', json.payload);
+                    safeSend('python-repos', json.payload);
                 else if (json.type === 'error') {
-                    mainWindow?.webContents.send('python-log', { level: 'error', message: json.payload.message });
-                    mainWindow?.webContents.send('python-error', { message: json.payload.message });
+                    safeSend('python-log', { level: 'error', message: json.payload.message });
+                    safeSend('python-error', { message: json.payload.message });
                 }
                 else if (json.type === 'preview')
-                    mainWindow?.webContents.send('python-preview', json.payload);
+                    safeSend('python-preview', json.payload);
                 else if (json.type === 'documentation_complete')
-                    mainWindow?.webContents.send('python-doc-complete', json.payload);
+                    safeSend('python-doc-complete', json.payload);
                 else if (json.type === 'upload_success')
-                    mainWindow?.webContents.send('python-upload-success', json.payload);
+                    safeSend('python-upload-success', json.payload);
                 else if (json.type === 'chat_response')
-                    mainWindow?.webContents.send('python-message', json);
+                    safeSend('python-message', json);
                 else if (json.type === 'caches_list')
-                    mainWindow?.webContents.send('python-message', json);
+                    safeSend('python-message', json);
                 else if (json.type === 'cache_cleared')
-                    mainWindow?.webContents.send('python-message', json);
+                    safeSend('python-message', json);
+                else if (json.type === 'graphrag_status')
+                    safeSend('python-message', json);
+                else if (json.type === 'graphrag_response')
+                    safeSend('python-message', json);
+                else if (json.type === 'graphrag_progress')
+                    safeSend('python-message', json);
                 else
                     console.log('Unknown Python Message:', json);
             }
             catch (e) {
                 console.log('Raw Python Output:', line);
-                mainWindow?.webContents.send('python-log', { level: 'raw', message: line });
+                safeSend('python-log', { level: 'raw', message: line });
             }
         });
     });
     pythonProcess.stderr?.on('data', (data) => {
         console.error(`Python stderr: ${data}`);
-        mainWindow?.webContents.send('python-log', { level: 'error', message: data.toString() });
+        safeSend('python-log', { level: 'error', message: data.toString() });
     });
     pythonProcess.on('close', (code) => {
         console.log(`Python process exited with code ${code}`);
-        mainWindow?.webContents.send('python-system', { status: 'stopped', message: `Process exited with code ${code}` });
+        safeSend('python-system', { status: 'stopped', message: `Process exited with code ${code}` });
     });
 }
 // --- App Lifecycle ---

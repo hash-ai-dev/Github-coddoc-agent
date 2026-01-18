@@ -28,6 +28,7 @@ export interface IElectronAPI {
     maximize: () => void;
     close: () => void;
     onChatResponse: (callback: (data: { answer: string }) => void) => () => void;
+    onGraphRagMessage: (callback: (data: any) => void) => () => void;
 }
 
 declare global {

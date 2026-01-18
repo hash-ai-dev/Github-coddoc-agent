@@ -83,8 +83,8 @@ try:
         print(f"Content preserved: {original_overview == loaded_overview}")
         
         # Check special characters
-        print(f"Contains single quotes: {'\\'' in loaded_overview}")
-        print(f"Contains double quotes: {'\"' in loaded_overview}")
+        print("Contains single quotes:", "'" in loaded_overview)
+        print("Contains double quotes:", '"' in loaded_overview)
         print(f"Contains hashes: {'#' in loaded_overview}")
         
 finally:

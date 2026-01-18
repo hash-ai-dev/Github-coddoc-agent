@@ -146,6 +146,9 @@ async function startPythonBackend() {
                 else if (json.type === 'chat_response') safeSend('python-message', json);
                 else if (json.type === 'caches_list') safeSend('python-message', json);
                 else if (json.type === 'cache_cleared') safeSend('python-message', json);
+                else if (json.type === 'graphrag_status') safeSend('python-message', json);
+                else if (json.type === 'graphrag_response') safeSend('python-message', json);
+                else if (json.type === 'graphrag_progress') safeSend('python-message', json);
                 else console.log('Unknown Python Message:', json);
             } catch (e) {
                 console.log('Raw Python Output:', line);

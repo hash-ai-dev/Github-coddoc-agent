@@ -9,6 +9,31 @@ langgraph>=0.2.45
 langchain>=0.3.7
 langchain-huggingface>=0.1.2
 langchain-community>=0.3.5
+lpydantic
+python-dotenv
+beautifulsoup4
+markdown
+tqdm
+uvicorn
+fastapi
+litellm
+requests
+networkx
+chromadb
+sentence-transformers
+numpy
+# GraphRAG Dependencies
+neo4j
+tree-sitter==0.21.3
+tree-sitter-languages
+llama-index
+llama-index-graph-stores-neo4j
+huggingface_hub
+
+# GitHub Integration
+PyGithub
+GitPython
+torch>=2.0.0
 
 # RAG & Vector Store
 chromadb>=0.4.22

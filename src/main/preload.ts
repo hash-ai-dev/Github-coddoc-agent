@@ -31,5 +31,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
         };
         ipcRenderer.on('python-message', listener);
         return () => ipcRenderer.removeListener('python-message', listener);
+    },
+    onGraphRagMessage: (callback: (data: any) => void) => {
+        const listener = (_event: any, data: any) => {
+            if (data.type && data.type.startsWith('graphrag_')) {
+                // Return cleaned object: { type: 'status', ...payload }
+                // backend sends type="graphrag_status", payload={status:..., message:...}
+                // We want to pass a unified object or just payload with type injected?
+                // GraphRagView expects { type: 'status', ...payload } logic
+                // Let's just pass the payload and let View handle, BUT we need the SUBTYPE.
+                // The backend type is "graphrag_status".
+                // Let's pass { type: 'status', ...payload }
+
+                const subType = data.type.replace('graphrag_', '');
+                callback({ type: subType, ...data.payload });
+            }
+        };
+        ipcRenderer.on('python-message', listener);
+        return () => ipcRenderer.removeListener('python-message', listener);
     }
 });

@@ -7,7 +7,6 @@ interface DashboardViewProps {
     handleStartAnalysis: () => void;
     isAnalyzing: boolean;
     progress: number;
-    generatedDoc: any;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -15,8 +14,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setRepoUrl,
     handleStartAnalysis,
     isAnalyzing,
-    progress,
-    generatedDoc
+    progress
 }) => {
     return (
         <div className="flex-1 flex flex-col gap-6 overflow-auto">

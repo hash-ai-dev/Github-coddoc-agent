@@ -42,7 +42,7 @@ def main():
     parser.add_argument("--mode", default="interactive", help="Run mode")
     args = parser.parse_args()
 
-    send_message("system", {"status": "starting", "message": "Python Agent initializing... (DEBUG: v3-persistence)"})
+    send_message("system", {"status": "starting", "message": f"Python Agent initializing... (Env: {sys.executable})"})
     
     load_repos()
     
@@ -104,7 +104,7 @@ def main():
                     try:
                         # Get credentials
                         api_key = ui_settings.get('huggingfaceApiKey') or os.getenv('HUGGINGFACE_API_KEY', '')
-                        model_name = ui_settings.get('modelName') or os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-Coder-32B-Instruct')
+                        model_name = ui_settings.get('modelName') or os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-Coder-7B-Instruct')
                         
                         if not api_key:
                             send_message("chat_response", {"answer": "Hugging Face API Key is missing. Please check your settings."})
@@ -174,7 +174,7 @@ def main():
                             'repo_url': repo_url,
                             'github_token': ui_settings.get('githubToken') or os.getenv('GITHUB_TOKEN', ''),
                             'hf_api_key': ui_settings.get('huggingfaceApiKey') or os.getenv('HUGGINGFACE_API_KEY', ''),
-                            'model_name': ui_settings.get('modelName') or os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-Coder-32B-Instruct'),
+                            'model_name': ui_settings.get('modelName') or os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-Coder-7B-Instruct'),
                             'confluence_url': ui_settings.get('confluenceUrl') or os.getenv('CONFLUENCE_URL', ''),
                             'confluence_email': ui_settings.get('confluenceEmail') or os.getenv('CONFLUENCE_EMAIL', ''),
                             'confluence_token': ui_settings.get('confluenceApiToken') or os.getenv('CONFLUENCE_API_TOKEN', ''),
@@ -331,6 +331,273 @@ def main():
                         logger.error(f"Failed to clear cache: {e}")
                         send_message("error", {"message": f"Failed to clear cache: {str(e)}"})
                 
+                elif cmd_type == "graphrag_connect":
+                    # Connect to Neo4j for GraphRAG
+                    data = command.get("data", {})
+                    uri = data.get("uri") or data.get("neo4jUri")
+                    username = data.get("username") or data.get("neo4jUser", "neo4j")
+                    password = data.get("password") or data.get("neo4jPassword")
+                    settings = data.get("settings", {})
+                    
+                    # Use shared HuggingFace credentials from main settings (can be overridden during ingestion)
+                    hf_api_key = settings.get('huggingfaceApiKey') or os.getenv('HUGGINGFACE_API_KEY', '')
+                    model_name = settings.get('modelName') or os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-Coder-7B-Instruct')
+                    
+                    # Override deprecated 32B model if it comes from settings
+                    if 'Qwen2.5-Coder-32B' in model_name or 'Qwen2.5-32B' in model_name:
+                        logger.warning(f"Deprecated model {model_name} detected. Switching to Qwen/Qwen2.5-Coder-7B-Instruct")
+                        model_name = 'Qwen/Qwen2.5-Coder-7B-Instruct'
+                    
+                    if not hf_api_key:
+                        send_message("error", {"message": "HuggingFace API Key is required. Please set it in Settings."})
+                        continue
+                    
+                    try:
+                        from graph_rag.service import GraphService
+                        
+                        # Initialize service singleton if needed
+                        logger.info("Initializing GraphService...")
+                        if 'graph_service' not in locals():
+                            graph_service = GraphService()
+                        
+                        success, msg = graph_service.connect(uri, username, password, hf_api_key, model_name)
+                        
+                        if success:
+                            send_message("graphrag_status", {"status": "connected", "message": msg})
+                            
+                            # Auto-sync all known repositories
+                            logger.info("[GraphRAG] Auto-syncing known repositories...")
+                            try:
+                                driver = graph_service.graph_manager.get_driver()
+                                with driver.session() as session:
+                                    result = session.run("""
+                                        MATCH (r:Repository)
+                                        RETURN r.repo_url as repo_url, r.local_path as local_path
+                                    """)
+                                    
+                                    repos = [(record['repo_url'], record['local_path']) 
+                                            for record in result if record['local_path']]
+                                
+                                if repos:
+                                    send_message("graphrag_progress", {"message": f"Auto-syncing {len(repos)} known repositories..."})
+                                    logger.info(f"[GraphRAG] Found {len(repos)} repositories to sync")
+                                    
+                                    for repo_url, local_path in repos:
+                                        if os.path.exists(local_path):
+                                            logger.info(f"[GraphRAG] Auto-syncing {repo_url}")
+                                            
+                                            def progress_cb(msg):
+                                                send_message("graphrag_progress", {"message": msg})
+                                            
+                                            result = graph_service.analyze_changes(local_path, repo_url, progress_callback=progress_cb)
+                                            
+                                            if result.get('status') == 'updated':
+                                                changes = result.get('total_changes', 0)
+                                                send_message("graphrag_progress", {"message": f"✅ {repo_url}: Updated {changes} files"})
+                                            elif result.get('status') == 'up_to_date':
+                                                send_message("graphrag_progress", {"message": f"✅ {repo_url}: Up to date"})
+                                        else:
+                                            logger.warning(f"[GraphRAG] Local path not found: {local_path}")
+                                    
+                                    send_message("graphrag_status", {"status": "synced", "message": "All repositories synchronized"})
+                                else:
+                                    logger.info("[GraphRAG] No repositories found to sync")
+                                    
+                            except Exception as e:
+                                logger.error(f"[GraphRAG] Auto-sync failed: {e}", exc_info=True)
+                                # Don't fail connection if auto-sync fails
+                        else:
+                            send_message("error", {"message": msg})
+                    except Exception as e:
+                        logger.error(f"GraphRAG connection failed: {e}", exc_info=True)
+                        send_message("error", {"message": f"Connection failed: {str(e)}"})
+
+                elif cmd_type == "graphrag_clear":
+                    # Clear all GraphRAG data from Neo4j
+                    if 'graph_service' not in locals():
+                        send_message("error", {"message": "Graph Service not connected."})
+                        continue
+                    
+                    try:
+                        logger.info("[GraphRAG] Clearing all data from Neo4j...")
+                        send_message("graphrag_progress", {"message": "Clearing all GraphRAG data..."})
+                        
+                        driver = graph_service.graph_manager.get_driver()
+                        with driver.session() as session:
+                            # Delete all nodes and relationships
+                            session.run("MATCH (n) DETACH DELETE n")
+                        
+                        logger.info("[GraphRAG] All data cleared successfully")
+                        send_message("graphrag_status", {
+                            "status": "cleared",
+                            "message": "All GraphRAG data has been cleared. Ready for fresh ingestion."
+                        })
+                    except Exception as e:
+                        logger.error(f"[GraphRAG] Clear failed: {e}", exc_info=True)
+                        send_message("error", {"message": f"Failed to clear data: {str(e)}"})
+
+                elif cmd_type == "graphrag_ingest":
+                    # Start Ingestion
+                    data = command.get("data", {})
+                    repo_url = data.get("repoUrl")
+                    # Assuming repo is cloned locally at a specific path, or we resolve it
+                    # For this agent, we might need the direct path.
+                    # Simplified: We expect the frontend to pass the local path or we resolve it via our internal map
+                    # Since REPOS list has the URL, we might need to find where it's stored.
+                    # The existing 'start_analysis' doesn't explicitly save the path in REPOS json, 
+                    # but usually these agents clone to a temp dir.
+                    # For safety, let's assume the user passes the 'path' or we use a known one.
+                    # Existing agent usage implies 'repoUrl' is the key. 
+                    # Ingest local repository
+                    data = command.get("data", {})
+                    repo_url = data.get("repoUrl")
+                    repo_path = data.get("repoPath")
+                    
+                    if not repo_path or not repo_url:
+                        send_message("error", {"message": "Repository path and URL are required"})
+                        continue
+                    
+                    if 'graph_service' not in locals():
+                        send_message("error", {"message": "Graph Service not connected."})
+                        continue
+
+                    def progress_cb(msg):
+                        send_message("graphrag_progress", {"message": msg})
+                    
+                    try:
+                        graph_service.ingest(repo_path, repo_url, progress_callback=progress_cb)
+                        send_message("graphrag_status", {"status": "ingested", "message": "Repository ingested successfully"})
+                    except Exception as e:
+                        logger.error(f"Ingestion failed: {e}")
+                        send_message("error", {"message": f"Ingestion failed: {str(e)}"})
+
+                elif cmd_type == "graphrag_ingest_github":
+                    # Ingest from GitHub repository
+                    data = command.get("data", {})
+                    repo_url = data.get("repoUrl")
+                    github_token = data.get("githubToken")
+                    branch = data.get("branch", "main")
+                    
+                    # Get isolated HF key from form if provided
+                    form_hf_key = data.get("hfApiKey", "")
+                    
+                    if not repo_url:
+                        send_message("error", {"message": "Repository URL is required"})
+                        continue
+                    
+                    if 'graph_service' not in locals():
+                        send_message("error", {"message": "Graph Service not connected."})
+                        continue
+
+                    def progress_cb(msg):
+                        logger.info(f"[GraphRAG Ingestion] {msg}")
+                        send_message("graphrag_progress", {"message": msg})
+                    
+                    try:
+                        from graph_rag.github_client import GitHubClient
+                        
+                        logger.info(f"[GraphRAG] Starting GitHub ingestion for {repo_url}")
+                        progress_cb("Initializing GitHub client...")
+                        
+                        # Initialize GitHub client
+                        gh_client = GitHubClient(token=github_token)
+                        
+                        # Validate token if provided
+                        if github_token:
+                            logger.info("[GraphRAG] Validating GitHub token...")
+                            valid, username = gh_client.validate_token()
+                            if not valid:
+                                logger.error("[GraphRAG] Invalid GitHub token")
+                                send_message("error", {"message": "Invalid GitHub token"})
+                                continue
+                            progress_cb(f"Authenticated as {username}")
+                            logger.info(f"[GraphRAG] Authenticated as {username}")
+                        
+                        # Determine local path
+                        repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
+                        local_path = os.path.join("backend", "data", "repos", repo_name)
+                        logger.info(f"[GraphRAG] Local path: {local_path}")
+                        
+                        progress_cb(f"Cloning/updating repository to {local_path}...")
+                        
+                        # Clone or update repository
+                        logger.info(f"[GraphRAG] Calling clone_or_update_repo...")
+                        success, commit_sha, message = gh_client.clone_or_update_repo(
+                            repo_url, local_path, branch
+                        )
+                        
+                        logger.info(f"[GraphRAG] Clone result: success={success}, sha={commit_sha}, msg={message}")
+                        
+                        if not success:
+                            logger.error(f"[GraphRAG] Clone/update failed: {message}")
+                            send_message("error", {"message": message})
+                            continue
+                        
+                        progress_cb(message)
+                        
+                        # Update credentials if form provided an isolated key
+                        if form_hf_key:
+                            logger.info("[GraphRAG] Using isolated HuggingFace key from ingestion form")
+                            progress_cb("Using isolated HuggingFace credentials...")
+                            graph_service.update_credentials(form_hf_key)
+                        else:
+                            logger.info("[GraphRAG] Using shared HuggingFace credentials from settings")
+                        
+                        # Analyze changes and update incrementally
+                        logger.info(f"[GraphRAG] Analyzing changes in {local_path}")
+                        progress_cb("Analyzing repository for changes...")
+                        
+                        result = graph_service.analyze_changes(local_path, repo_url, progress_callback=progress_cb)
+                        
+                        if result.get('status') == 'error':
+                            logger.error(f"[GraphRAG] Change analysis failed: {result.get('error')}")
+                            send_message("error", {"message": f"Change analysis failed: {result.get('error')}"})
+                            continue
+                        
+                        logger.info(f"[GraphRAG] Analysis complete: {result}")
+                        
+                        # Prepare success message based on result
+                        if result.get('status') == 'up_to_date':
+                            message = f"Repository is up to date (commit: {commit_sha[:7]})"
+                        else:
+                            changes = result.get('total_changes', 0)
+                            message = f"Updated {changes} changed files (commit: {commit_sha[:7]})"
+                        
+                        # Store repository metadata in Neo4j
+                        logger.info("[GraphRAG] Storing repository metadata...")
+                        driver = graph_service.graph_manager.get_driver()
+                        with driver.session() as session:
+                            session.run("""
+                                MERGE (r:Repository {repo_url: $repo_url})
+                                SET r.repo_name = $repo_name,
+                                    r.last_commit_sha = $commit_sha,
+                                    r.last_synced = timestamp(),
+                                    r.branch = $branch,
+                                    r.local_path = $local_path
+                            """, repo_url=repo_url, repo_name=repo_name, 
+                               commit_sha=commit_sha, branch=branch, local_path=local_path)
+                        
+                        logger.info("[GraphRAG] Repository metadata stored")
+                        send_message("graphrag_status", {
+                            "status": "ingested", 
+                            "message": message
+                        })
+                        
+                    except Exception as e:
+                        logger.error(f"[GraphRAG] GitHub ingestion failed: {e}", exc_info=True)
+                        send_message("error", {"message": f"GitHub ingestion failed: {str(e)}"})
+
+                elif cmd_type == "graphrag_query":
+                    data = command.get("data", {})
+                    question = data.get("query")
+                    
+                    if 'graph_service' not in locals():
+                         send_message("error", {"message": "Graph Service not connected."})
+                         continue
+
+                    answer = graph_service.query(question)
+                    send_message("graphrag_response", {"answer": answer})
+
                 else:
                     send_message("error", {"message": f"Unknown command: {cmd_type}"})
 

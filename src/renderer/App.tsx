@@ -1,14 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense, lazy } from 'react';
 
 import { DashboardView } from './components/DashboardView';
 import { SettingsView } from './components/SettingsView';
 import { ReposView } from './components/ReposView';
 import { DocumentationEditor } from './components/DocumentationEditor';
 import { CacheView } from './components/CacheView';
-import { Book, Settings, Github, LayoutDashboard, Database, Minus, Square, X, Bot, MessageSquare } from 'lucide-react';
+import { Book, Settings, Github, LayoutDashboard, Database, Minus, Square, X, Bot, MessageSquare, Network } from 'lucide-react';
 import { ChatInterface, Message } from './components/ChatInterface';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+
+const GraphRagView = lazy(() => import('./graph_rag/GraphRagView').then(module => ({ default: module.GraphRagView })));
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
@@ -30,6 +32,14 @@ function App() {
             role: 'assistant',
             content: "Hello! I'm your code assistant. Ask me anything about this repository, and I'll use the codebase context to answer.",
             timestamp: Date.now()
+        }
+    ]);
+
+    // GraphRAG Chat State (Session-only persistence)
+    const [graphRagMessages, setGraphRagMessages] = useState<{ role: string; content: string }[]>([
+        {
+            role: 'assistant',
+            content: "Welcome to Code Intelligence. I can explain your codebase in plain business language using GraphRAG. Please connect to Neo4j to begin."
         }
     ]);
 
@@ -93,12 +103,63 @@ function App() {
                 });
             }
 
+            // GraphRAG Chat Listener
+            let cleanupGraphRag: (() => void) | undefined;
+            if (window.electronAPI.onGraphRagMessage) {
+                cleanupGraphRag = window.electronAPI.onGraphRagMessage((data: any) => {
+                    // Check if we've already shown initial sync messages this session
+                    const hasShownInitialSync = sessionStorage.getItem('graphrag_initial_sync_shown');
+
+                    if (data.type === 'response') {
+                        setGraphRagMessages(prev => [
+                            ...prev,
+                            { role: 'assistant', content: data.answer || 'No response' }
+                        ]);
+                    } else if (data.type === 'progress') {
+                        // Only show progress messages if we haven't completed initial sync
+                        if (!hasShownInitialSync && data.message) {
+                            setGraphRagMessages(prev => [
+                                ...prev,
+                                { role: 'assistant', content: `📊 ${data.message}` }
+                            ]);
+                        }
+                    } else if (data.type === 'status') {
+                        if (data.status === 'connected') {
+                            // Only show connection message if it's the first time
+                            if (!hasShownInitialSync) {
+                                setGraphRagMessages(prev => [
+                                    ...prev,
+                                    { role: 'assistant', content: `**Connected successfully!** ${data.message || ''}\n\nYou can now ask questions or ingest a repository.` }
+                                ]);
+                            }
+                        } else if (data.status === 'ingested') {
+                            setGraphRagMessages(prev => [
+                                ...prev,
+                                { role: 'assistant', content: "**Ingestion Complete.** The knowledge graph is ready." }
+                            ]);
+                        } else if (data.status === 'synced') {
+                            // Mark that initial sync is complete
+                            sessionStorage.setItem('graphrag_initial_sync_shown', 'true');
+
+                            // Only show sync complete message on first sync
+                            if (!hasShownInitialSync) {
+                                setGraphRagMessages(prev => [
+                                    ...prev,
+                                    { role: 'assistant', content: "✅ All repositories synchronized. Ready to answer questions!" }
+                                ]);
+                            }
+                        }
+                    }
+                });
+            }
+
             // Initial fetch
             window.electronAPI.sendCommand({ type: 'list_repos', data: {} });
 
             // Store cleanup to be called on unmount
             return () => {
                 if (cleanupChat) cleanupChat();
+                if (cleanupGraphRag) cleanupGraphRag();
             };
         }
     }, []);
@@ -141,6 +202,7 @@ function App() {
                 <NavIcon icon={Github} active={activeTab === 'repos'} onClick={() => setActiveTab('repos')} />
                 <NavIcon icon={MessageSquare} active={activeTab === 'chat'} onClick={() => setActiveTab('chat')} />
                 <NavIcon icon={Database} active={activeTab === 'cache'} onClick={() => setActiveTab('cache')} />
+                <NavIcon icon={Network} active={activeTab === 'graph_rag'} onClick={() => setActiveTab('graph_rag')} />
                 <NavIcon icon={Settings} active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
             </aside>
 
@@ -214,7 +276,6 @@ function App() {
                             handleStartAnalysis={handleStartAnalysis}
                             isAnalyzing={isAnalyzing}
                             progress={progress}
-                            generatedDoc={generatedDoc}
                         />
                     )}
 
@@ -263,6 +324,15 @@ function App() {
                     )}
 
                     {activeTab === 'settings' && <SettingsView />}
+
+                    {activeTab === 'graph_rag' && (
+                        <Suspense fallback={<div className="flex items-center justify-center h-full text-slate-500">Loading Intelligence...</div>}>
+                            <GraphRagView
+                                messages={graphRagMessages}
+                                setMessages={setGraphRagMessages}
+                            />
+                        </Suspense>
+                    )}
                 </div>
             </main>
 
